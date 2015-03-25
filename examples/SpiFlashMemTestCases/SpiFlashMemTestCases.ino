@@ -69,7 +69,8 @@ enum {
   CHIP_SECTOR_SIZE = SpiFlashMem::CHIP_SECTOR_SIZE,
   CHIP_TOTAL_SECTORS = CHIP_TOTAL_BYTES / CHIP_SECTOR_SIZE,
   CHIP_TOTAL_PAGES = CHIP_TOTAL_BYTES / CHIP_PAGE_SIZE,
-  WRITE_TEST_SIZE = 9,
+  SINGLE_PAGE_WRITE_TEST_SIZE = 9, // chosen in a fairly arbitrary fashion
+  TWO_PAGE_WRITE_TEST_SIZE = 265, // chosen in a fairly arbitrary fashion
   // NOTE: this should be defined in stdint.h
   UINT8_MAX = 255,
   RANDOM_SEED_PIN = A0,
@@ -93,10 +94,21 @@ static const char *ERROR_STRINGS[SpiFlashMem::MAX_ERRORS] = {
   do {								\
     uint8_t result = __VA_ARGS__;				\
     if (SpiFlashMem::SUCCESS_RESULT != result) {		\
-      Serial << "ERROR: " << ERROR_STRINGS[result] << endl;	\
+      Serial << F("ERROR: ") << ERROR_STRINGS[result] << endl;	\
       return;							\
     }								\
-    Serial << "OK" << endl;					\
+    Serial << F("OK") << endl;					\
+  } while (0)
+
+#define EXPECT_FAILURE(testName, ...)				\
+  do {								\
+    uint8_t result = __VA_ARGS__;				\
+    if (SpiFlashMem::SUCCESS_RESULT == result) {		\
+      Serial << F("ERROR: ") << testName			\
+	     << F(" succeeded unexpectedly") << endl;		\
+      return;							\
+    }								\
+    Serial << F("OK") << endl;					\
   } while (0)
 
 /**
@@ -110,7 +122,7 @@ static const char *ERROR_STRINGS[SpiFlashMem::MAX_ERRORS] = {
     if (SpiFlashMem::SUCCESS_RESULT != returnCode) {	\
       goto EXIT;					\
     }							\
-    Serial << "OK" << endl;				\
+    Serial << F("OK") << endl;				\
   } while(0)
 
 /**
@@ -146,12 +158,14 @@ prepareTestByte(SpiFlashMem &mem,
       }
     }
   }
-  Serial << "OK" << endl;
+  // NOTE: logging OK here because more information will be printed
+  // about this test.
+  Serial << F("OK") << endl;
   // No byte with a cleared bit was found, write a 0 value into the
   // first address in order to be able to check if chip was
   // successfully erased.
-  Serial << "Writing test value 0 into byte at address "
-	 << *result << "...";
+  Serial << F("Writing test value 0 into byte at address ")
+	 << *result << F("...");
   {
     const Address testAddress = *result;
     const uint8_t testValue = 0;
@@ -177,18 +191,16 @@ validateErasedByte(const SpiFlashMem &mem,
 		   const SpiFlashMem::Address testAddress,
 		   const char * const erasureType)
 {
-  Serial << "Reading back test value from address " << testAddress
-	 << " to validate " << erasureType << " erasure...";
+  Serial << F("Reading back test value from address ") << testAddress
+	 << F(" to validate ") << erasureType << F(" erasure...");
   uint8_t testValue;
-  uint8_t returnCode = mem.read(testAddress, &testValue, 1);
-  if (SpiFlashMem::SUCCESS_RESULT != returnCode) {
-    goto EXIT;
-  }
-  Serial << "OK" << endl << "Checking resulting value...";
+  uint8_t returnCode = SpiFlashMem::SUCCESS_RESULT;
+  EXIT_ON_FAIL(mem.read(testAddress, &testValue, 1));
+  Serial << F("Checking resulting value...");
   returnCode = SpiFlashMem::SUCCESS_RESULT;
   if (UINT8_MAX != testValue) {
-    Serial << "Mismatch, expected " << static_cast<unsigned>(UINT8_MAX)
-	   << ", received " << static_cast<unsigned>(testValue) << ": ";
+    Serial << F("Mismatch, expected ") << static_cast<unsigned>(UINT8_MAX)
+	   << F(", received ") << static_cast<unsigned>(testValue) << F(": ");
     // FIXME: should use a constant from SpiFlashMem here...
     returnCode = 7;  // i.e. "Internal Error"
   }
@@ -197,39 +209,44 @@ validateErasedByte(const SpiFlashMem &mem,
   return returnCode;
 }
 
+/**
+ * Write a block of data which does not match the old data to the
+ * flash memory, then read back the result and validate that it is
+ * correct.
+ */
 static uint8_t
 testBlockWrite(SpiFlashMem &mem,
 	       const SpiFlashMem::Address baseAddress,
 	       const char * const testType)
 {
-  Serial << "Reading " << static_cast<unsigned>(WRITE_TEST_SIZE)
-	 << " bytes of original data starting at address "
-	 << baseAddress << " (page " << SpiFlashMem::address2Page(baseAddress)
-	 << ") for " << testType << " test...";
-  uint8_t oldData[WRITE_TEST_SIZE];
-  memset(oldData, 0, WRITE_TEST_SIZE);
+  Serial << F("Reading ") << static_cast<unsigned>(SINGLE_PAGE_WRITE_TEST_SIZE)
+	 << F(" bytes of original data starting at address ")
+	 << baseAddress << F(" (page ") << SpiFlashMem::address2Page(baseAddress)
+	 << F(") for ") << testType << F(" test...");
+  uint8_t oldData[SINGLE_PAGE_WRITE_TEST_SIZE];
+  memset(oldData, 0, SINGLE_PAGE_WRITE_TEST_SIZE);
   uint8_t returnCode = 0;
-  EXIT_ON_FAIL(mem.read(baseAddress, oldData, WRITE_TEST_SIZE));
-  // Generate new values.
-  uint8_t newData[WRITE_TEST_SIZE];
-  for (uint8_t index = 0; index < WRITE_TEST_SIZE; ++index) {
+  EXIT_ON_FAIL(mem.read(baseAddress, oldData, SINGLE_PAGE_WRITE_TEST_SIZE));
+  // Generate new values which to not match the old values.
+  uint8_t newData[SINGLE_PAGE_WRITE_TEST_SIZE];
+  for (uint8_t index = 0; index < SINGLE_PAGE_WRITE_TEST_SIZE; ++index) {
     newData[index] = (UINT8_MAX == oldData[index]) ? index : oldData[index] + 1;
   }
   // Write the new values back to the location.
-  Serial << "Writing new data for " << testType << " test...";
-  EXIT_ON_FAIL(mem.write(baseAddress, newData, WRITE_TEST_SIZE));
+  Serial << F("Writing new data for ") << testType << F(" test...");
+  EXIT_ON_FAIL(mem.write(baseAddress, newData, SINGLE_PAGE_WRITE_TEST_SIZE));
   // Read the new data back.
-  uint8_t checkData[WRITE_TEST_SIZE];
-  memset(checkData, 0, WRITE_TEST_SIZE);
-  Serial << "Reading check data for " << testType << " test...";
-  EXIT_ON_FAIL(mem.read(baseAddress, checkData, WRITE_TEST_SIZE));
+  uint8_t checkData[SINGLE_PAGE_WRITE_TEST_SIZE];
+  memset(checkData, 0, SINGLE_PAGE_WRITE_TEST_SIZE);
+  Serial << F("Reading check data for ") << testType << F(" test...");
+  EXIT_ON_FAIL(mem.read(baseAddress, checkData, SINGLE_PAGE_WRITE_TEST_SIZE));
   // Compare check data to expected values.
-  Serial << "Comparing check data to expected values...";
-  for (uint8_t offset = 0; offset < WRITE_TEST_SIZE; ++offset) {
+  Serial << F("Comparing check data to expected values...");
+  for (uint8_t offset = 0; offset < SINGLE_PAGE_WRITE_TEST_SIZE; ++offset) {
     if (checkData[offset] != newData[offset]) {
-      Serial << "Mismatch at offset " << offset << " from base address "
-	     << baseAddress << ": expected " << newData[offset]
-	     << ", received " << checkData[offset] << ": ";
+      Serial << F("Mismatch at offset ") << offset << F(" from base address ")
+	     << baseAddress << F(": expected ") << newData[offset]
+	     << F(", received ") << checkData[offset] << F(": ");
       // FIXME: should use a constant from SpiFlashMem here...
       returnCode = 7;  // i.e. "Internal Error"
       goto EXIT;
@@ -344,7 +361,7 @@ setup()
       Serial << F("Mismatch") << endl;
       return;
     }
-    Serial << "OK" << endl;
+    Serial << F("OK") << endl;
   }
 
   // Test chip erase
@@ -387,7 +404,7 @@ setup()
     // subject to the constraint that the test bytes written WILL NOT
     // cross the page boundary.
     const uint16_t page = random(CHIP_TOTAL_PAGES);
-    const uint32_t offset = random(CHIP_PAGE_SIZE - (WRITE_TEST_SIZE + 1));
+    const uint32_t offset = random(CHIP_PAGE_SIZE - (SINGLE_PAGE_WRITE_TEST_SIZE + 1));
     Address baseAddress =
       static_cast<Address>((static_cast<uint32_t>(page * CHIP_PAGE_SIZE) +
 			    offset));
@@ -401,32 +418,46 @@ setup()
     // subject to the constraint that the test bytes written WILL
     // cross the page boundary.
     const uint16_t page = random(CHIP_TOTAL_PAGES - 1);
-    const uint32_t offset = random(CHIP_PAGE_SIZE - (WRITE_TEST_SIZE / 2),
-				   CHIP_PAGE_SIZE - (WRITE_TEST_SIZE / 3));
+    const uint32_t offset = random(CHIP_PAGE_SIZE - (SINGLE_PAGE_WRITE_TEST_SIZE / 2),
+				   CHIP_PAGE_SIZE - (SINGLE_PAGE_WRITE_TEST_SIZE / 3));
     
     Address baseAddress =
       SpiFlashMem::page2BaseAddress(page) + static_cast<Address>(offset);
     EXPECT_SUCCESS(testBlockWrite(mem, baseAddress, "inter-page write"));
   }
 
-  // TODO
-  // Test write which crosses multiple page boundaries
+  // NOTE: not currently writing a test which crosses more than one
+  // page boundary in a single call of write() due to the fact that
+  // this would require the allocation of an array which is greater
+  // than the page size, an occurrence which is not expected to happen
+  // in practice due to the memory limitations on the targeted class
+  // of microcontrollers.
 
-  // TODO
-  // Check that attempting to read beyond max address produces an
-  // error
+  // Error handling tests.
+  {
+    Serial << F("*** Error handling tests ***") << endl;
+    uint8_t dummy;
+    // Check that attempting to read beyond max address produces an
+    // error
+    Serial << F("Attempting to read beyond max address should fail...");
+    EXPECT_FAILURE("reading beyond max address",
+		   mem.read(static_cast<Address>(CHIP_TOTAL_BYTES - 10),
+			    &dummy, 20));
+    // Check that attempting to write beyond max address produces an
+    // error
+    Serial << F("Attempting to write beyond max address should fail...");
+    EXPECT_FAILURE("reading beyond max address",
+		   mem.write(static_cast<Address>(CHIP_TOTAL_BYTES - 10),
+			     &dummy, 20));
+  }
 
-  // TODO
-  // Check that attempting to write beyond max address produces an
-  // error
-
-  Serial << "=== Successful result for all tests ===" << endl;
+  Serial << F("=== Successful result for all tests ===") << endl;
 }
 
 void
 loop()
 {
-  Serial << "Testing Completed" << endl;
+  Serial << F("Testing Completed") << endl;
   while (1) {
     delay(1000);
   }

@@ -154,24 +154,59 @@ public:
 
   SpiFlashMem(const uint8_t chipSelectPin);
 
+  /**
+   * Initialize the object for use, including the initialization of
+   * the global SPI object.
+   *
+   * Returns a standard return code.
+   */
   uint8_t
   init();
 
+  /**
+   * Read a block of data starting at the argument address into a
+   * provided buffer.
+   *
+   * Returns a standard return code.
+   */
   uint8_t
   read(const Address address,
        uint8_t *buffer,
        const uint32_t count) const;
 
+  /**
+   * Write a block of data from a provided buffer into the memory
+   * starting at the argument address.
+   *
+   * NOTE: this function will handle the crossing of page boundaries
+   * correctly, but for best performance, large data writes should be
+   * broken up into page-sized chunks and written to page-aligned
+   * boundaries.
+   *
+   * Returns a standard return code.
+   */
   uint8_t
   write(const Address address,
 	const uint8_t *buffer,
 	const uint32_t count);
 
+  /**
+   * Erase (i.e. set all bits in) the argument sector.
+   *
+   * Returns a standard return code.
+   */
   uint8_t
   eraseSector(const uint16_t sector);
 
+  /**
+   * Erase (i.e. set all bits in) all sectors.
+   *
+   * Returns a standard return code.
+   */
   uint8_t
   eraseChip();
+
+  /**** Various useful address calculation functions. ****/
 
   /**
    * Note on argument range and return values:
