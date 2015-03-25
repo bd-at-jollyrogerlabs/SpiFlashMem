@@ -44,7 +44,11 @@
 #include <StreamSerial.h>
 #include "SpiFlashMem.h"
 
-// TODO
+// NOTE: uncomment the following line to turn on DEBUG logging for the
+// write() member function.
+// #define DEBUG_WRITE 1
+
+// FIXME - handle conversion from return codes to error strings
 // SpiFlashMem::ErrorStringType
 // SpiFlashMem::RETURN_CODES[SpiFlashMem::MAX_ERRORS] = {
 //   F("Success"),
@@ -138,36 +142,45 @@ write(const Address address,
     result = SUCCESS_RESULT;
     goto EXIT;
   }
+
+# ifdef DEBUG_WRITE
+  Serial << endl << F("\tDBG: Write address is ") << address << F(", count is ")
+	 << count << endl;
+# endif
+
   while (written < count) {
     // NOTE: data writes may not cross page boundaries.
-    const Address nextPageBase = SpiFlashMem::nextPageAddress(startAddress);
-    // TODO:
-    // Serial << "Next page base is " << nextPageBase << endl;
+    const Address nextPageBase = SpiFlashMem::nextPageBaseAddress(startAddress);
+
+#   ifdef DEBUG_WRITE
+    Serial << F("\tDBG: Next page base for start address ") << startAddress
+	   << F(" is ") << nextPageBase << endl;
+#   endif
+
     // Calculate the number of bytes to be written in this
     // iteration.
     uint32_t writeCount = count - written;
     if ((startAddress + writeCount) >= nextPageBase) {
-      writeCount = (nextPageBase - 1) - startAddress;
+      writeCount = nextPageBase - startAddress;
     }
-    // TODO:
-    // Serial << "Writing " << writeCount << " bytes to this page" << endl;
+
+#   ifdef DEBUG_WRITE
+    Serial << F("\tDBG: Writing ") << writeCount << F(" bytes to this page")
+	   << endl;
+#   endif
+
     // Enable writing
     result = beginWrite();
     if (SUCCESS_RESULT != result) {
-      if (written > 0) {
-	result = PARTIAL_WRITE_ERROR;
-      }
+      result = (written > 0) ? PARTIAL_WRITE_ERROR : WRITE_ERROR;
       goto EXIT;
     }
     // Send "Page Program" command + address
-    // TODO:
-    // Serial << "Sending page program command + address" << endl;
-    sendCommand(PROGRAM_PAGE_CMD);
-    SPI.transfer((startAddress >> 16) & EIGHT_BIT_MASK);
-    SPI.transfer((startAddress >> 8) & EIGHT_BIT_MASK);
-    SPI.transfer(startAddress & EIGHT_BIT_MASK);
-    // TODO:
-    // Serial << "Sending data" << endl;
+    sendCommand(PAGE_PROGRAM_CMD);
+    SPI.transfer(static_cast<uint8_t>((startAddress >> 16) & EIGHT_BIT_MASK));
+    SPI.transfer(static_cast<uint8_t>((startAddress >> 8) & EIGHT_BIT_MASK));
+    SPI.transfer(static_cast<uint8_t>(startAddress & EIGHT_BIT_MASK));
+
     // Send data to the on-chip buffer
     for (uint32_t counter = 0; counter < writeCount; ++counter) {
       SPI.transfer(buffer[written + counter]);
@@ -175,26 +188,28 @@ write(const Address address,
     // Deselect chip to trigger the "Page Program" instruction to
     // read the data from the on-chip buffer and write it to the
     // non-volatile memory.
-    // TODO:
-    // Serial << "De-selecting chip" << endl;
     deselectChip();
-    delay(3);
-    // Wait until the BUSY bit is cleared; "write enable latch"
-    // (WEL) should also be cleared, but this is not currently
-    // checked.
-    // TODO:
-    // Serial << "Waiting for ready" << endl;
+    // Wait until the BUSY bit is cleared.
     result = waitForReady();
     if (SUCCESS_RESULT != result) {
-      if (written > 0) {
-	result = PARTIAL_WRITE_ERROR;
-      }
+      result = (written > 0) ? PARTIAL_WRITE_ERROR : WRITE_ERROR;
+      goto EXIT;
+    }
+    // Force the write to end.
+    endWrite();
+    if (isWriteEnableLatchSet()) {
+      // NOTE: assuming that it is an error for WEL to be set after
+      // successfully sending "Write Disable Command"
+      result = (written > 0) ? PARTIAL_WRITE_ERROR : WRITE_ERROR;
       goto EXIT;
     }
     startAddress += writeCount;
     written += writeCount;
-    // TODO:
-    // Serial << "Written = " << written << ", count = " << count << endl;
+
+#   ifdef DEBUG_WRITE
+    Serial << F("\tDBG: Written = ") << written << F(", count = ") << count
+	   << F(", new start address = ") << startAddress << endl;
+#   endif
   }
 
   result = SUCCESS_RESULT;
@@ -207,6 +222,8 @@ uint8_t
 SpiFlashMem::
 eraseSector(const uint16_t sector)
 {
+  const uint32_t baseAddress =
+    static_cast<uint32_t>(sector) * CHIP_SECTOR_SIZE;
   uint8_t result = ADDRESS_ERROR;
   if (sector > (CHIP_TOTAL_SECTORS - 1)) {
     goto EXIT;
@@ -216,11 +233,13 @@ eraseSector(const uint16_t sector)
     goto EXIT;
   }
   sendCommand(ERASE_SECTOR_CMD);
-  SPI.transfer((sector >> 8) & EIGHT_BIT_MASK);
-  SPI.transfer(sector & EIGHT_BIT_MASK);
+  SPI.transfer(static_cast<uint8_t>((baseAddress >> 16) & EIGHT_BIT_MASK));
+  SPI.transfer(static_cast<uint8_t>((baseAddress >> 8) & EIGHT_BIT_MASK));
   SPI.transfer(0);  // lowest order bits are ignored
   deselectChip();
-  result = waitForReady();
+  // NOTE: using timeout value from Adafruit_TinyFlash library.
+  // Datasheet says 400 ms max
+  result = waitForReady(10000L);
   if (SUCCESS_RESULT != result) {
     goto EXIT;
   }
@@ -241,7 +260,9 @@ eraseChip()
   }
   sendCommand(ERASE_CHIP_CMD);
   deselectChip();
-  result = waitForReady();
+  // NOTE: using timeout value from Adafruit_TinyFlash library.
+  // Datasheet says 6 sec max
+  result = waitForReady(10000L);
   if (SUCCESS_RESULT != result) {
     goto EXIT;
   }
@@ -260,7 +281,7 @@ waitForReady(const uint32_t timeout) const
   uint32_t startTime = millis();
 
   do {
-    sendCommand(READ_STATUS_CMD);
+    sendCommand(READ_STATUS_REGISTER_1_CMD);
     status = SPI.transfer(0);
     deselectChip();
     if ((millis() - startTime) > timeout) {
@@ -268,6 +289,17 @@ waitForReady(const uint32_t timeout) const
     }
   } while (status & BUSY_STATUS);
   return SUCCESS_RESULT;
+}
+
+bool
+SpiFlashMem::
+isWriteEnableLatchSet() const
+{
+  uint8_t status;
+  sendCommand(READ_STATUS_REGISTER_1_CMD);
+  status = SPI.transfer(0);
+  deselectChip();
+  return status & WRITE_ENABLED_STATUS;
 }
 
 uint8_t
@@ -283,9 +315,9 @@ beginRead(const Address address) const
     goto EXIT;
   }
   sendCommand(READ_DATA_CMD);
-  SPI.transfer((address >> 16) & EIGHT_BIT_MASK);
-  SPI.transfer((address >> 8) & EIGHT_BIT_MASK);
-  SPI.transfer(address & EIGHT_BIT_MASK);
+  SPI.transfer(static_cast<uint8_t>((address >> 16) & EIGHT_BIT_MASK));
+  SPI.transfer(static_cast<uint8_t>((address >> 8) & EIGHT_BIT_MASK));
+  SPI.transfer(static_cast<uint8_t>(address & EIGHT_BIT_MASK));
   result = SUCCESS_RESULT;
 
  EXIT:
@@ -300,11 +332,15 @@ beginWrite()
   if (SUCCESS_RESULT != result) {
     goto EXIT;
   }
+  // Send "Write Enable" command.
   sendCommand(WRITE_ENABLE_CMD);
   deselectChip();
-  sendCommand(READ_STATUS_CMD);
+  // Send "Read Status Register-1" command.
+  sendCommand(READ_STATUS_REGISTER_1_CMD);
   result = SPI.transfer(0);
-  if (WRITE_ENABLED_STATUS != result) {
+  deselectChip();
+  // Check if "Write Enable Latch" (WEL) is set.
+  if (!(WRITE_ENABLED_STATUS & result)) {
     result = WRITE_ERROR;
     goto EXIT;
   }
@@ -318,15 +354,17 @@ void
 SpiFlashMem::
 endWrite()
 {
+  // Send "Write Disable" command.
   sendCommand(WRITE_DISABLE_CMD);
   deselectChip();
+  // MAYBE: maybe check the value of WEL?
 }
 
 uint8_t
 SpiFlashMem::
 validateDeviceIdentifiers() const
 {
-  sendCommand(GET_ID_CMD);
+  sendCommand(READ_MANUFACTURER_AND_DEVICE_ID_CMD);
   uint8_t manufacturerId;
   // NOTE: 3 dummy bytes precede the manufacturer ID.
   for (uint8_t counter = 0; counter < 4; ++counter) {
