@@ -46,7 +46,7 @@
 
 // NOTE: uncomment the following line to turn on DEBUG logging for the
 // write() member function.
-// #define DEBUG_WRITE 1
+//#define DEBUG_WRITE 1
 
 // FIXME - handle conversion from return codes to error strings
 // SpiFlashMem::ErrorStringType
@@ -60,6 +60,31 @@
 //   F("Not Initialized"),
 //   F("Internal Error")
 // };
+
+/**
+ * NOTE: REQUIRE_INIT assumes that the surrounding block has defined a
+ * variable named returnCode and also has an available EXIT label to
+ * jump to.
+ */
+#define REQUIRE_INIT()					\
+  do {							\
+    if (!isInitialized_) {				\
+      returnCode = SpiFlashMem::NOT_INITIALIZED_ERROR;	\
+    }							\
+  } while (0)
+
+/**
+ * NOTE: EXIT_ON_FAIL assumes that the surrounding block has defined a
+ * variable named returnCode and also has an available EXIT label to
+ * jump to.
+ */
+#define EXIT_ON_FAIL(...)				\
+  do {							\
+    returnCode = __VA_ARGS__;				\
+    if (SpiFlashMem::SUCCESS_RESULT != returnCode) {	\
+      goto EXIT;					\
+    }							\
+  } while(0)
 
 SpiFlashMem::
 SpiFlashMem(const uint8_t chipSelectPin)
@@ -86,16 +111,16 @@ init()
   // NOTE: SPI.begin() may be called multiple times
   SPI.begin();
 
-  uint8_t result = validateDeviceIdentifiers();
-  if (SUCCESS_RESULT != result) {
+  uint8_t returnCode = validateDeviceIdentifiers();
+  if (SUCCESS_RESULT != returnCode) {
     isInitialized_ = false;
     goto EXIT;
   }
 
-  result = SUCCESS_RESULT;
+  returnCode = SUCCESS_RESULT;
 
  EXIT:
-  return result;
+  return returnCode;
 }
 
 uint8_t
@@ -104,26 +129,27 @@ read(const Address address,
      uint8_t *buffer,
      const uint32_t count) const
 {
-  uint8_t result = ADDRESS_ERROR;
+  // FIXME: sanity checks on buffer buffer pointer, check for (0 ==
+  // count).
+  uint8_t returnCode = SUCCESS_RESULT;
+  REQUIRE_INIT();
   if ((address + count) > CHIP_TOTAL_BYTES) {
+    returnCode = ADDRESS_ERROR;
     goto EXIT;
   }
   if (0 == count) {
-    result = SUCCESS_RESULT;
+    returnCode = SUCCESS_RESULT;
     goto EXIT;
   }
-  result = beginRead(address);
-  if (SUCCESS_RESULT != result) {
-    goto EXIT;
-  }
+  EXIT_ON_FAIL(beginRead(address));
   for (unsigned index = 0; index < count; ++index) {
     buffer[index] = SPI.transfer(0);
   }
   deselectChip();  // ends the read automatically
-  result = SUCCESS_RESULT;
+  returnCode = SUCCESS_RESULT;
 
  EXIT:
-  return result;
+  return returnCode;
 }
 
 uint8_t
@@ -132,14 +158,18 @@ write(const Address address,
       const uint8_t *buffer,
       const uint32_t count)
 {
+  // FIXME: sanity checks on buffer buffer pointer, check for (0 ==
+  // count).
   uint32_t written = 0;
   Address startAddress = address;
-  uint8_t result = ADDRESS_ERROR;
+  uint8_t returnCode;
+  REQUIRE_INIT();
   if ((address + count) > CHIP_TOTAL_BYTES) {
+    returnCode = ADDRESS_ERROR;
     goto EXIT;
   }
   if (0 == count) {
-    result = SUCCESS_RESULT;
+    returnCode = SUCCESS_RESULT;
     goto EXIT;
   }
 
@@ -149,8 +179,12 @@ write(const Address address,
 # endif
 
   while (written < count) {
-    // NOTE: data writes may not cross page boundaries.
-    const Address nextPageBase = SpiFlashMem::nextPageBaseAddress(startAddress);
+    // NOTE: data writes may not cross page boundaries; also, address
+    // + count has already been checked against CHIP_TOTAL_BYTES, so
+    // no need to check if the total memory will be exceeded here.
+    const Address nextPageBase = (startAddress >= LAST_PAGE_START_ADDRESS) ?
+      CHIP_TOTAL_BYTES :
+      SpiFlashMem::nextPageBaseAddress(startAddress);
 
 #   ifdef DEBUG_WRITE
     Serial << F("\tDBG: Next page base for start address ") << startAddress
@@ -170,9 +204,9 @@ write(const Address address,
 #   endif
 
     // Enable writing
-    result = beginWrite();
-    if (SUCCESS_RESULT != result) {
-      result = (written > 0) ? PARTIAL_WRITE_ERROR : WRITE_ERROR;
+    returnCode = beginWrite();
+    if (SUCCESS_RESULT != returnCode) {
+      returnCode = (written > 0) ? PARTIAL_WRITE_ERROR : WRITE_ERROR;
       goto EXIT;
     }
     // Send "Page Program" command + address
@@ -190,9 +224,9 @@ write(const Address address,
     // non-volatile memory.
     deselectChip();
     // Wait until the BUSY bit is cleared.
-    result = waitForReady();
-    if (SUCCESS_RESULT != result) {
-      result = (written > 0) ? PARTIAL_WRITE_ERROR : WRITE_ERROR;
+    returnCode = waitForReady();
+    if (SUCCESS_RESULT != returnCode) {
+      returnCode = (written > 0) ? PARTIAL_WRITE_ERROR : WRITE_ERROR;
       goto EXIT;
     }
     // Force the write to end.
@@ -200,7 +234,7 @@ write(const Address address,
     if (isWriteEnableLatchSet()) {
       // NOTE: assuming that it is an error for WEL to be set after
       // successfully sending "Write Disable Command"
-      result = (written > 0) ? PARTIAL_WRITE_ERROR : WRITE_ERROR;
+      returnCode = (written > 0) ? PARTIAL_WRITE_ERROR : WRITE_ERROR;
       goto EXIT;
     }
     startAddress += writeCount;
@@ -212,10 +246,10 @@ write(const Address address,
 #   endif
   }
 
-  result = SUCCESS_RESULT;
+  returnCode = SUCCESS_RESULT;
 
  EXIT:
-  return result;
+  return returnCode;
 }
 
 uint8_t
@@ -224,14 +258,13 @@ eraseSector(const uint16_t sector)
 {
   const uint32_t baseAddress =
     static_cast<uint32_t>(sector) * CHIP_SECTOR_SIZE;
-  uint8_t result = ADDRESS_ERROR;
+  uint8_t returnCode;
+  REQUIRE_INIT();
   if (sector > (CHIP_TOTAL_SECTORS - 1)) {
+    returnCode = ADDRESS_ERROR;
     goto EXIT;
   }
-  result = beginWrite();
-  if (SUCCESS_RESULT != result) {
-    goto EXIT;
-  }
+  EXIT_ON_FAIL(beginWrite());
   sendCommand(ERASE_SECTOR_CMD);
   SPI.transfer(static_cast<uint8_t>((baseAddress >> 16) & EIGHT_BIT_MASK));
   SPI.transfer(static_cast<uint8_t>((baseAddress >> 8) & EIGHT_BIT_MASK));
@@ -239,38 +272,31 @@ eraseSector(const uint16_t sector)
   deselectChip();
   // NOTE: using timeout value from Adafruit_TinyFlash library.
   // Datasheet says 400 ms max
-  result = waitForReady(10000L);
-  if (SUCCESS_RESULT != result) {
-    goto EXIT;
-  }
+  EXIT_ON_FAIL(waitForReady(10000L));
   endWrite();
-  result = SUCCESS_RESULT;
+  returnCode = SUCCESS_RESULT;
 
  EXIT:
-  return result;
+  return returnCode;
 }
 
 uint8_t
 SpiFlashMem::
 eraseChip()
 {
-  uint8_t result = beginWrite();
-  if (SUCCESS_RESULT != result) {
-    goto EXIT;
-  }
+  uint8_t returnCode;
+  REQUIRE_INIT();
+  EXIT_ON_FAIL(beginWrite());
   sendCommand(ERASE_CHIP_CMD);
   deselectChip();
   // NOTE: using timeout value from Adafruit_TinyFlash library.
   // Datasheet says 6 sec max
-  result = waitForReady(10000L);
-  if (SUCCESS_RESULT != result) {
-    goto EXIT;
-  }
+  EXIT_ON_FAIL(waitForReady(10000L));
   endWrite();
-  result = SUCCESS_RESULT;
+  returnCode = SUCCESS_RESULT;
 
  EXIT:
-  return result;
+  return returnCode;
 }
 
 uint8_t
@@ -306,48 +332,43 @@ uint8_t
 SpiFlashMem::
 beginRead(const Address address) const
 {
-  uint8_t result = ADDRESS_ERROR;
+  uint8_t returnCode = ADDRESS_ERROR;
   if (address > (CHIP_TOTAL_BYTES - 1)) {
     goto EXIT;
   }
-  result = waitForReady();
-  if (SUCCESS_RESULT != result) {
-    goto EXIT;
-  }
+  EXIT_ON_FAIL(waitForReady());
   sendCommand(READ_DATA_CMD);
   SPI.transfer(static_cast<uint8_t>((address >> 16) & EIGHT_BIT_MASK));
   SPI.transfer(static_cast<uint8_t>((address >> 8) & EIGHT_BIT_MASK));
   SPI.transfer(static_cast<uint8_t>(address & EIGHT_BIT_MASK));
-  result = SUCCESS_RESULT;
+  returnCode = SUCCESS_RESULT;
 
  EXIT:
-  return result;
+  return returnCode;
 }
 
 uint8_t
 SpiFlashMem::
 beginWrite()
 {
-  uint8_t result = waitForReady();
-  if (SUCCESS_RESULT != result) {
-    goto EXIT;
-  }
+  uint8_t returnCode;
+  EXIT_ON_FAIL(waitForReady());
   // Send "Write Enable" command.
   sendCommand(WRITE_ENABLE_CMD);
   deselectChip();
   // Send "Read Status Register-1" command.
   sendCommand(READ_STATUS_REGISTER_1_CMD);
-  result = SPI.transfer(0);
+  returnCode = SPI.transfer(0);
   deselectChip();
   // Check if "Write Enable Latch" (WEL) is set.
-  if (!(WRITE_ENABLED_STATUS & result)) {
-    result = WRITE_ERROR;
+  if (!(WRITE_ENABLED_STATUS & returnCode)) {
+    returnCode = WRITE_ERROR;
     goto EXIT;
   }
-  result = SUCCESS_RESULT;
+  returnCode = SUCCESS_RESULT;
 
  EXIT:
-  return result;
+  return returnCode;
 }
 
 void
