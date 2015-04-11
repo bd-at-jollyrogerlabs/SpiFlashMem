@@ -77,32 +77,19 @@ enum {
   SERIAL_FLASH_CHIP_SELECT_PIN = 10
 };
 
-// FIXME: find a way to embed this data within SpiFlashMem while
-// keeping the strings in program memory.
-static const char *ERROR_STRINGS[SpiFlashMem::MAX_ERRORS] = {
-  "Success",
-  "Timeout",
-  "Bad Address",
-  "Write Error",
-  "Partial Write Error",
-  "Identifier Mismatch",
-  "Not Initialized",
-  "Internal Error"
-};
-
 #define OK					\
   do {						\
     Serial << F("OK") << endl;			\
   } while (0)
 
-#define EXPECT_SUCCESS(...)					\
-  do {								\
-    uint8_t result = __VA_ARGS__;				\
-    if (SpiFlashMem::SUCCESS_RESULT != result) {		\
-      Serial << F("ERROR: ") << ERROR_STRINGS[result] << endl;	\
-      return;							\
-    }								\
-    OK;								\
+#define EXPECT_SUCCESS(...)						\
+  do {									\
+    uint8_t result = __VA_ARGS__;					\
+    if (SpiFlashMem::SUCCESS_RESULT != result) {			\
+      Serial << F("ERROR: ") << SpiFlashMem::getErrorString(result) << endl; \
+      return;								\
+    }									\
+    OK;									\
   } while (0)
 
 #define EXPECT_FAILURE(testName, ...)				\
@@ -230,8 +217,7 @@ validateErasedByte(const SpiFlashMem &mem,
   if (UINT8_MAX != testValue) {
     Serial << F("Mismatch, expected ") << static_cast<unsigned>(UINT8_MAX)
 	   << F(", received ") << static_cast<unsigned>(testValue) << F(": ");
-    // FIXME: should use a constant from SpiFlashMem here...
-    returnCode = 7;  // i.e. "Internal Error"
+    returnCode = SpiFlashMem::INTERNAL_ERROR;  // i.e. "Internal Error"
   }
 
  EXIT:
@@ -280,8 +266,7 @@ testBlockWrite(SpiFlashMem &mem,
       Serial << F("Mismatch at offset ") << offset << F(" from base address ")
 	     << baseAddress << F(": expected ") << newData[offset]
 	     << F(", received ") << checkData[offset] << F(": ");
-      // FIXME: should use a constant from SpiFlashMem here...
-      returnCode = 7;  // i.e. "Internal Error"
+      returnCode = SpiFlashMem::INTERNAL_ERROR;  // i.e. "Internal Error"
       goto EXIT;
     }
   }

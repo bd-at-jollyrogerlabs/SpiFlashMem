@@ -48,18 +48,27 @@
 // write() member function.
 //#define DEBUG_WRITE 1
 
-// FIXME - handle conversion from return codes to error strings
-// SpiFlashMem::ErrorStringType
-// SpiFlashMem::RETURN_CODES[SpiFlashMem::MAX_ERRORS] = {
-//   F("Success"),
-//   F("Timeout"),
-//   F("Bad Address"),
-//   F("Write Error"),
-//   F("Partial Write Error"),
-//   F("Identifier Mismatch"),
-//   F("Not Initialized"),
-//   F("Internal Error")
-// };
+const char SUCCESS_STRING[] PROGMEM = "success";
+const char TIMEOUT_STRING[] PROGMEM = "timeout";
+const char BAD_ADDRESS_STRING[] PROGMEM = "bad address";
+const char WRITE_ERROR_STRING[] PROGMEM = "write error";
+const char PARTIAL_WRITE_ERROR_STRING[] PROGMEM = "partial write error";
+const char IDENTIFIER_MISMATCH_STRING[] PROGMEM = "identifier mismatch";
+const char NOT_INITIALIZED_STRING[] PROGMEM = "not initialized";
+const char INTERNAL_ERROR_STRING[] PROGMEM = "internal error";
+
+const char * const
+SpiFlashMem::
+ERROR_STRINGS[SpiFlashMem::MAX_ERRORS] = {
+  SUCCESS_STRING,
+  TIMEOUT_STRING,
+  BAD_ADDRESS_STRING,
+  WRITE_ERROR_STRING,
+  PARTIAL_WRITE_ERROR_STRING,
+  IDENTIFIER_MISMATCH_STRING,
+  NOT_INITIALIZED_STRING,
+  INTERNAL_ERROR_STRING
+};
 
 /**
  * NOTE: REQUIRE_INIT assumes that the surrounding block has defined a
@@ -129,8 +138,7 @@ read(const Address address,
      uint8_t *buffer,
      const uint32_t count) const
 {
-  // FIXME: sanity checks on buffer buffer pointer, check for (0 ==
-  // count).
+  // FIXME: sanity checks on buffer buffer pointer
   uint8_t returnCode = SUCCESS_RESULT;
   REQUIRE_INIT();
   if ((address + count) > CHIP_TOTAL_BYTES) {
@@ -158,8 +166,7 @@ write(const Address address,
       const uint8_t *buffer,
       const uint32_t count)
 {
-  // FIXME: sanity checks on buffer buffer pointer, check for (0 ==
-  // count).
+  // FIXME: sanity checks on buffer buffer pointer
   uint32_t written = 0;
   Address startAddress = address;
   uint8_t returnCode;
@@ -297,6 +304,14 @@ eraseChip()
 
  EXIT:
   return returnCode;
+}
+
+SpiFlashMem::ErrorStringType
+SpiFlashMem::
+getErrorString(const uint8_t returnCode)
+{
+  return (returnCode >= MAX_ERRORS) ? F("unknown") :
+    reinterpret_cast<ErrorStringType>(ERROR_STRINGS[returnCode]);
 }
 
 uint8_t
