@@ -78,7 +78,9 @@ ERROR_STRINGS[SpiFlashMem::MAX_ERRORS] = {
 #define REQUIRE_INIT()					\
   do {							\
     if (!isInitialized_) {				\
-      returnCode = SpiFlashMem::NOT_INITIALIZED_ERROR;	\
+      /* \todo */						\
+      /*returnCode = SpiFlashMem::NOT_INITIALIZED_ERROR;*/	\
+      returnCode = NOT_INITIALIZED_ERROR;	\
     }							\
   } while (0)
 
@@ -90,7 +92,9 @@ ERROR_STRINGS[SpiFlashMem::MAX_ERRORS] = {
 #define EXIT_ON_FAIL(...)				\
   do {							\
     returnCode = __VA_ARGS__;				\
-    if (SpiFlashMem::SUCCESS_RESULT != returnCode) {	\
+      /* \todo */						\
+    /*if (SpiFlashMem::SUCCESS_RESULT != returnCode) {*/	\
+    if (SUCCESS_RESULT != returnCode) {	\
       goto EXIT;					\
     }							\
   } while(0)
@@ -191,7 +195,9 @@ write(const Address address,
     // no need to check if the total memory will be exceeded here.
     const Address nextPageBase = (startAddress >= LAST_PAGE_START_ADDRESS) ?
       CHIP_TOTAL_BYTES :
-      SpiFlashMem::nextPageBaseAddress(startAddress);
+      // \todo
+      // SpiFlashMem::nextPageBaseAddress(startAddress);
+      nextPageBaseAddress(startAddress);
 
 #   ifdef DEBUG_WRITE
     Serial << F("\tDBG: Next page base for start address ") << startAddress

@@ -81,50 +81,82 @@
 /*
  * Possible future features, in rough order of importance:
  *
- * 1. Support for "chip select traits" to allow a chip select
- *    mechanism other than having a single pin assigned to control a
- *    single chip (e.g. shift register); "chip select traits" would be
- *    a template argument to the SpiFlashMem class.
+ * - Conditionally place some error strings in the flash memory itself
+ *   to handle the case where program memory is scarce.
+ * 
+ * - Conditional definition of SpiFlashMem type from various types of
+ *   chips other than W25Q80BV.
  *
- * 2. Support for active low hold pin to allow transmission of large
+ * - Support for "chip select policy" to allow a chip select mechanism
+ *   other than having a single pin assigned to control a single chip
+ *   (e.g. shift register); "chip select traits" would be a template
+ *   argument to the SpiFlashMem class.
+ *
+ * - Support for active low hold pin to allow transmission of large
  *    blocks of data to be paused in order to service other components
  *    attached to the SPI bus.
  *
- * 3. Support for "Power-down" instruction to allow improved battery
- *    life.
+ * - Support for "Power-down" instruction to allow improved battery
+ *   life.
  *
- * 4. Support for asynchronous completion of longer operations such as
- *    chip or sector erase; this would require support from some
- *    external mechanism, most likely via some template hackery.
+ * - Support for asynchronous completion of longer operations such as
+ *   chip or sector erase; this would require support from some
+ *   external mechanism, most likely via some template hackery.
  *
- * 5. Support for various "write protect" functions that are provided
- *    by the chip and accessed by sending instructions over SPI.
+ * - Support for various "write protect" functions that are provided
+ *   by the chip and accessed by sending instructions over SPI.
  *
- * 6. Support for returning manufacturer and device ID to client code
- *    as well as returning the device Unique ID Number and JEDEC ID;
- *    manufacturer and device ID are currently validated internally
- *    via compile time constants, but validation could also occur by
- *    supplying some sort of "ID traits" type via template argument.
+ * - Support for returning manufacturer and device ID to client code
+ *   as well as returning the device Unique ID Number and JEDEC ID;
+ *   manufacturer and device ID are currently validated internally via
+ *   compile time constants, but validation could also occur by
+ *   supplying some sort of "ID traits" type via template argument.
  *
- * 7. Support for various block erase instructions for sizes larger
- *    than a sector (32k, 64k); should be easy to add.
+ * - Support for various block erase instructions for sizes larger
+ *   than a sector (32k, 64k); should be easy to add.
  *
- * 8. Support for "Erase/Program Suspend" and "Erase/Program Resume"
- *    to allow data to flow to or from sectors that are not currently
- *    being erased.
+ * - Support for "Erase/Program Suspend" and "Erase/Program Resume" to
+ *   allow data to flow to or from sectors that are not currently
+ *   being erased.
  *
- * 9. Support for "Serial Flash Discoverable Parameter" (SFDP) data
- *    which could be used to make the entire class work with any
- *    supported chip in a Plug'n'Play fashion.
+ * - Support for "Serial Flash Discoverable Parameter" (SFDP) data
+ *   which could be used to make the entire class work with any
+ *   supported chip in a Plug'n'Play fashion.
  *
  * Features that will probably not be supported:
  *
- * 1. Dual and Quad SPI instructions, since this is not supported in
- *    hardware on Atmel microcontrollers used for Arduino.
+ * - Dual and Quad SPI instructions, since this is not supported in
+ *   hardware on Atmel microcontrollers used for Arduino.
  */
 
 #ifndef SPIFLASHMEM_H
 #define SPIFLASHMEM_H 1
+
+// \todo
+// struct SpiFlashMemConstants
+// {
+//   enum {
+//     // return codes
+//     SUCCESS_RESULT = 0,
+//     TIMEOUT_ERROR = 1,
+//     ADDRESS_ERROR = 2,
+//     WRITE_ERROR = 3,
+//     PARTIAL_WRITE_ERROR = 4,
+//     IDENTIFIER_MISMATCH_ERROR = 5,
+//     NOT_INITIALIZED_ERROR = 6,
+//     INTERNAL_ERROR = 7,
+//     MAX_ERRORS = 8
+//   };
+
+// protected:
+//   static const char * const ERROR_STRINGS[MAX_ERRORS];
+// };
+
+// template<unsigned TotalBytes,
+// 	 unsigned PageSize,
+// 	 unsigned SectorSize,
+// 	 unsigned MaxEraseCount>
+// class SpiFlashMemBase : public SpiFlashMemConstants
 
 
 class SpiFlashMem
@@ -133,9 +165,18 @@ public:
   enum {
     // externally visible constants
     CHIP_TOTAL_BYTES = 1L * 1024L * 1024L,
+    // \todo
+    // CHIP_TOTAL_BYTES = TotalBytes,
     CHIP_PAGE_SIZE = 256, // 2^8, from datasheet
+    // \todo
+    // CHIP_PAGE_SIZE = PageSize,
     CHIP_SECTOR_SIZE = 4096, // 2^12
+    // \todo
+    // CHIP_SECTOR_SIZE = SectorSize,
     CHIP_TOTAL_SECTORS = CHIP_TOTAL_BYTES / CHIP_SECTOR_SIZE,
+    CHIP_MAX_ERASE_COUNT = 100000,
+    // \todo
+    // CHIP_MAX_ERASE_COUNT = MaxEraseCount,
     // return codes
     SUCCESS_RESULT = 0,
     TIMEOUT_ERROR = 1,
@@ -150,6 +191,8 @@ public:
 
   typedef const __FlashStringHelper * ErrorStringType;
   typedef uint32_t Address;
+  typedef uint16_t Sector;
+  typedef uint16_t Page;
 
   SpiFlashMem(const uint8_t chipSelectPin);
 
@@ -201,7 +244,7 @@ public:
    * Returns a standard return code.
    */
   uint8_t
-  eraseSector(const uint16_t sector);
+  eraseSector(const Sector sector);
 
   /**
    * Erase (i.e. set all bits in) all sectors.
@@ -220,7 +263,7 @@ public:
    *    sectors, the base address of the last sector is returned.
    */
   static inline Address
-  sector2BaseAddress(const uint16_t sector)
+  sector2BaseAddress(const Sector sector)
   {
     return (sector > (CHIP_TOTAL_SECTORS - 1)) ?
       static_cast<Address>(CHIP_TOTAL_SECTORS - 1) << SECTOR_2_ADDRESS_SHIFT :
@@ -233,7 +276,7 @@ public:
    * 1. WARNING: if argument address is larger than the total number
    *    of bytes, the number of the last sector is returned.
    */
-  static inline uint8_t
+  static inline Sector
   address2Sector(const Address address)
   {
     return (address > (CHIP_TOTAL_BYTES - 1)) ?
@@ -248,7 +291,7 @@ public:
    *    pages, the base address of the last page is returned.
    */
   static inline Address
-  page2BaseAddress(const uint16_t page)
+  page2BaseAddress(const Page page)
   {
     return (page > (CHIP_TOTAL_PAGES - 1)) ?
       static_cast<Address>(CHIP_TOTAL_PAGES - 1) << PAGE_2_ADDRESS_SHIFT :
@@ -261,12 +304,12 @@ public:
    * 1. WARNING: if argument address is larger than the base address
    *    of the last page, the last page number is returned.
    */
-  static inline uint16_t
+  static inline Page
   address2Page(const Address address)
   {
     return (address > (CHIP_TOTAL_BYTES - 1)) ?
       (CHIP_TOTAL_PAGES - 1) :
-      static_cast<uint16_t>(address >> PAGE_2_ADDRESS_SHIFT);
+      static_cast<Page>(address >> PAGE_2_ADDRESS_SHIFT);
   }
 
   /**
@@ -410,5 +453,23 @@ private:
   volatile uint8_t *chipSelectPort_;
   bool isInitialized_;
 };
+
+// \todo
+// namespace SpiFlashMemChipTypes
+// {
+// enum {
+//   W25Q80BV_TOTAL_BYES = 1L * 1024L * 1024L,
+//   W25Q80BV_PAGE_SIZE = 256,
+//   W25Q80BV_SECTOR_SIZE = 4096,
+//   W25Q80BV_MAX_ERASE_COUNT = 100000
+// };
+// }
+
+// typedef SpiFlashMemBase<SpiFlashMemChipTypes::W25Q80BV_TOTAL_BYES,
+// 			SpiFlashMemChipTypes::W25Q80BV_PAGE_SIZE,
+// 			SpiFlashMemChipTypes::W25Q80BV_SECTOR_SIZE,
+// 			SpiFlashMemChipTypes::W25Q80BV_MAX_ERASE_COUNT> SpiFlashMem_W25Q80BV;
+
+// typedef SpiFlashMem_W25Q80BV SpiFlashMem;
 
 #endif // SPIFLASHMEM_H
