@@ -42,7 +42,7 @@
 /*
  *
  * Pin assignment documentation, based based on the datasheet for
- * W25Q80BV:
+ * the Winbond W25Q80BV (revision 1, released 9-oct-2013):
  *
  * pin 1 (/CS) is active low chip select; this should be the pin
  *       number argument to the constructor, and it also should be
@@ -132,52 +132,19 @@
 #ifndef SPIFLASHMEM_H
 #define SPIFLASHMEM_H 1
 
-// \todo
-// struct SpiFlashMemConstants
-// {
-//   enum {
-//     // return codes
-//     SUCCESS_RESULT = 0,
-//     TIMEOUT_ERROR = 1,
-//     ADDRESS_ERROR = 2,
-//     WRITE_ERROR = 3,
-//     PARTIAL_WRITE_ERROR = 4,
-//     IDENTIFIER_MISMATCH_ERROR = 5,
-//     NOT_INITIALIZED_ERROR = 6,
-//     INTERNAL_ERROR = 7,
-//     MAX_ERRORS = 8
-//   };
-
-// protected:
-//   static const char * const ERROR_STRINGS[MAX_ERRORS];
-// };
-
-// template<unsigned TotalBytes,
-// 	 unsigned PageSize,
-// 	 unsigned SectorSize,
-// 	 unsigned MaxEraseCount>
-// class SpiFlashMemBase : public SpiFlashMemConstants
-
-
 class SpiFlashMem
 {
 public:
+  // Main enum containing integer constants.
   enum {
     // externally visible constants
     CHIP_TOTAL_BYTES = 1L * 1024L * 1024L,
-    // \todo
-    // CHIP_TOTAL_BYTES = TotalBytes,
     CHIP_PAGE_SIZE = 256, // 2^8, from datasheet
-    // \todo
-    // CHIP_PAGE_SIZE = PageSize,
     CHIP_SECTOR_SIZE = 4096, // 2^12
-    // \todo
-    // CHIP_SECTOR_SIZE = SectorSize,
     CHIP_TOTAL_SECTORS = CHIP_TOTAL_BYTES / CHIP_SECTOR_SIZE,
     CHIP_MAX_ERASE_COUNT = 100000,
-    // \todo
-    // CHIP_MAX_ERASE_COUNT = MaxEraseCount,
-    // return codes
+
+    // standard return codes
     SUCCESS_RESULT = 0,
     TIMEOUT_ERROR = 1,
     ADDRESS_ERROR = 2,
@@ -205,6 +172,10 @@ public:
   uint8_t
   init();
 
+  /**
+   * Return 'true' if the chip has been initialized, 'false'
+   * otherwise.
+   */
   inline bool
   isInitialized() const
   {
@@ -247,7 +218,7 @@ public:
   eraseSector(const Sector sector);
 
   /**
-   * Erase (i.e. set all bits in) all sectors.
+   * Erase (i.e. set all bits to 1 in) all sectors.
    *
    * Returns a standard return code.
    */
@@ -453,23 +424,5 @@ private:
   volatile uint8_t *chipSelectPort_;
   bool isInitialized_;
 };
-
-// \todo
-// namespace SpiFlashMemChipTypes
-// {
-// enum {
-//   W25Q80BV_TOTAL_BYES = 1L * 1024L * 1024L,
-//   W25Q80BV_PAGE_SIZE = 256,
-//   W25Q80BV_SECTOR_SIZE = 4096,
-//   W25Q80BV_MAX_ERASE_COUNT = 100000
-// };
-// }
-
-// typedef SpiFlashMemBase<SpiFlashMemChipTypes::W25Q80BV_TOTAL_BYES,
-// 			SpiFlashMemChipTypes::W25Q80BV_PAGE_SIZE,
-// 			SpiFlashMemChipTypes::W25Q80BV_SECTOR_SIZE,
-// 			SpiFlashMemChipTypes::W25Q80BV_MAX_ERASE_COUNT> SpiFlashMem_W25Q80BV;
-
-// typedef SpiFlashMem_W25Q80BV SpiFlashMem;
 
 #endif // SPIFLASHMEM_H

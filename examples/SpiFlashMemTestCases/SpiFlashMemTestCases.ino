@@ -37,6 +37,37 @@
  * 
  */
 
+/*
+ * INSTRUCTIONS
+ *
+ * The SpiFlashMem library and all dependent libraries must be
+ * installed on your system before this test can be successfully run
+ * and compiled.
+ *
+ * To run this test case, wire a single flash memory chip with the
+ * appropriate SPI pin assignments according to the Arduino board and
+ * the device data sheet for the MOSI (master out/slave in), MISO
+ * (master in/slave out), and SCK (clock) pins.  See the enum below or
+ * review the Arduino documentation for the appropriate pin
+ * assignments on the Arduino board (NOTE: Arduino UNO running ATMega
+ * 328 and Arduino Mega running ATMega 2560 are the only boards known
+ * to be correctly supported without code modifications).  The device
+ * "chip select" pin (AKA /CS) should be wired to Arduino pin 10 or,
+ * alternatively, the value for SERIAL_FLASH_CHIP_SELECT_PIN in the
+ * main enum should be set to the number of the pin selected.
+ *
+ * When executing the sketch, the serial monitor should be opened
+ * because user input is required to start the test; simply follow the
+ * instructions written to the monitor.  The test runs only once to
+ * avoid excessive wear on the flash memory device; the Arduino must
+ * be reset in order to run the test again.
+ *
+ * WARNING: any information previously written to the device under
+ * test ***WILL BE ERASED*** by this test!  Additionally, the test
+ * will execute erase cycles on the device, effectively reducing its
+ * lifespan by a small amount.
+ */
+
 #include <stdint.h>
 #include <SPI.h>
 #include <StreamSerial.h>
@@ -284,7 +315,6 @@ setup()
   // NOTE: assuming that analog pin 0 is not connected so that random
   // noise is read here
   randomSeed(analogRead(RANDOM_SEED_PIN));
-
   Serial << F("SPI flash memory test cases, send any byte to begin: ");
   while (!Serial.available()) {
     delay(1000);

@@ -39,14 +39,17 @@
  * 
  */
 
-#include <stdint.h>
-#include <SPI.h>
-#include <StreamSerial.h>
-#include "SpiFlashMem.h"
-
 // NOTE: uncomment the following line to turn on DEBUG logging for the
 // write() member function.
 //#define DEBUG_WRITE 1
+
+#include <stdint.h>
+#include <SPI.h>
+#include "SpiFlashMem.h"
+
+#ifdef DEBUG_WRITE
+#include <StreamSerial.h>
+#endif // DEBUG_WRITE
 
 const char SUCCESS_STRING[] PROGMEM = "success";
 const char TIMEOUT_STRING[] PROGMEM = "timeout";
@@ -75,13 +78,11 @@ ERROR_STRINGS[SpiFlashMem::MAX_ERRORS] = {
  * variable named returnCode and also has an available EXIT label to
  * jump to.
  */
-#define REQUIRE_INIT()					\
-  do {							\
-    if (!isInitialized_) {				\
-      /* \todo */						\
-      /*returnCode = SpiFlashMem::NOT_INITIALIZED_ERROR;*/	\
+#define REQUIRE_INIT()				\
+  do {						\
+    if (!isInitialized_) {			\
       returnCode = NOT_INITIALIZED_ERROR;	\
-    }							\
+    }						\
   } while (0)
 
 /**
@@ -89,14 +90,12 @@ ERROR_STRINGS[SpiFlashMem::MAX_ERRORS] = {
  * variable named returnCode and also has an available EXIT label to
  * jump to.
  */
-#define EXIT_ON_FAIL(...)				\
-  do {							\
-    returnCode = __VA_ARGS__;				\
-      /* \todo */						\
-    /*if (SpiFlashMem::SUCCESS_RESULT != returnCode) {*/	\
-    if (SUCCESS_RESULT != returnCode) {	\
-      goto EXIT;					\
-    }							\
+#define EXIT_ON_FAIL(...)			\
+  do {						\
+    returnCode = __VA_ARGS__;			\
+    if (SUCCESS_RESULT != returnCode) {		\
+      goto EXIT;				\
+    }						\
   } while(0)
 
 SpiFlashMem::
@@ -195,8 +194,6 @@ write(const Address address,
     // no need to check if the total memory will be exceeded here.
     const Address nextPageBase = (startAddress >= LAST_PAGE_START_ADDRESS) ?
       CHIP_TOTAL_BYTES :
-      // \todo
-      // SpiFlashMem::nextPageBaseAddress(startAddress);
       nextPageBaseAddress(startAddress);
 
 #   ifdef DEBUG_WRITE
@@ -408,12 +405,14 @@ validateDeviceIdentifiers() const
 {
   sendCommand(READ_MANUFACTURER_AND_DEVICE_ID_CMD);
   uint8_t manufacturerId;
-  // NOTE: 3 dummy bytes precede the manufacturer ID.
+  // NOTE: 3 bytes set to 0 must be sent as the address part of the
+  // command before the manufacturer and device IDs can be read.
   for (uint8_t counter = 0; counter < 4; ++counter) {
     manufacturerId = SPI.transfer(0);
   }
   uint8_t deviceId = SPI.transfer(0);
   deselectChip();
+
   if ((MANUFACTURER_ID != manufacturerId) ||
       (DEVICE_ID != deviceId)) {
     return IDENTIFIER_MISMATCH_ERROR;
